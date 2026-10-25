@@ -6,13 +6,13 @@ Dashboard interaktif berbasis **Streamlit** untuk menganalisis hubungan antara i
 
 ## 👥 Tim
 - Talitha Nailal Husna
--Shinta Aprilia
--Ghinanti Farrah Diba
--salma ayu ningtias
--Ricardo Arrofi
--Syaharani Azka Haq
--Aprilia Nurjannah
--Ghifari Naufal Adya Kusumah
+- Shinta Aprilia
+- Ghinanti Farrah Diba
+- salma ayu ningtias
+- Ricardo Arrofi
+- Syaharani Azka Haq
+- Aprilia Nurjannah
+- Ghifari Naufal Adya Kusumah
 
 ---
 
