@@ -2,12 +2,17 @@
 
 Dashboard interaktif berbasis **Streamlit** untuk menganalisis hubungan antara indikator makroekonomi (BI Rate, selisih suku bunga BI-AS) dan dinamika pasar keuangan (IHSG, S&P 500, emas, minyak, USD/IDR, VIX) pada periode **2010-2026**.
 
-> Proyek kelompok [...nama mata kuliah / kelompok...]
+> Proyek kelompok 2 Pattern
 
 ## 👥 Tim
-- [Nama anggota 1] - [peran]
-- [Nama anggota 2] - [peran]
-- [...]
+- Talitha Nailal Husna
+-Shinta Aprilia
+-Ghinanti Farrah Diba
+-salma ayu ningtias
+-Ricardo Arrofi
+-Syaharani Azka Haq
+-Aprilia Nurjannah
+-Ghifari Naufal Adya Kusumah
 
 ---
 
