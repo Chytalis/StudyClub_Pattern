@@ -1,1 +1,0 @@
-# StudyClub_Pattern
