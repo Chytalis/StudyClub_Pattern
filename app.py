@@ -1,235 +1,442 @@
-# app.py
-import os
+from datetime import date
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-# ------------------------------------------------------------------
+# ======================================================================
 # KONFIGURASI HALAMAN
-# ------------------------------------------------------------------
+# ======================================================================
 st.set_page_config(
     page_title="Dashboard Makro & Pasar Keuangan Indonesia",
     page_icon="📈",
     layout="wide",
 )
-sns.set_theme(style="whitegrid")
 
-DATA_PATH = "data_clean.csv"
+DATA_FILE = "data/clean/data_clean.csv"
+REQUIRED = [
+    "Date", "OIL", "GOLD", "USDIDR", "SP500", "IHSG", "VIX", "BI_rate",
+    "IHSG_ret", "SP500_ret", "SP500_ret_lag1", "USDIDR_ret", "GOLD_ret",
+    "OIL_chg", "VIX_chg", "BI_rate_chg", "BI_event", "spread_BI_US", "VIX_lag1",
+]
+LABEL = {
+    "IHSG": "IHSG", "SP500": "S&P 500", "GOLD": "Emas (USD)",
+    "OIL": "Minyak (USD)", "USDIDR": "USD/IDR", "VIX": "VIX",
+}
+TEMPLATE = "plotly_white"
 
 
-# ------------------------------------------------------------------
+def show(fig):
+    """Tampilkan grafik Plotly (kompatibel dengan berbagai versi Streamlit)."""
+    fig.update_layout(template=TEMPLATE, margin=dict(l=10, r=10, t=50, b=10))
+    try:
+        st.plotly_chart(fig, width="stretch")
+    except TypeError:
+        st.plotly_chart(fig, use_container_width=True)
+
+
+# ======================================================================
 # LOAD DATA
-# ------------------------------------------------------------------
-@st.cache_data
-def load_data(src):
-    df = pd.read_csv(src, parse_dates=["Date"])
-    df = df.sort_values("Date").reset_index(drop=True)
-    return df
+# ======================================================================
+@st.cache_data(show_spinner=False)
+def load_data(source):
+    d = pd.read_csv(source, parse_dates=["Date"])
+    return d.sort_values("Date").reset_index(drop=True)
 
 
-if os.path.exists(DATA_PATH):
-    df_all = load_data(DATA_PATH)
-else:
-    up = st.file_uploader("Upload data_clean.csv", type="csv")
+try:
+    df = load_data(DATA_FILE)
+except FileNotFoundError:
+    up = st.sidebar.file_uploader("Upload data_clean.csv", type="csv")
     if up is None:
-        st.info("Letakkan data_clean.csv di folder yang sama dengan app.py, atau upload di sini.")
+        st.title("📈 Dashboard Makro & Pasar Keuangan Indonesia")
+        st.warning(
+            f"File `{DATA_FILE}` tidak ditemukan di folder yang sama dengan app.py. "
+            "Letakkan file di folder tersebut atau upload lewat sidebar."
+        )
         st.stop()
-    df_all = load_data(up)
+    df = load_data(up)
 
-# ------------------------------------------------------------------
-# SIDEBAR (FILTER)
-# ------------------------------------------------------------------
-st.sidebar.header("⚙️ Filter")
-min_d, max_d = df_all["Date"].min().date(), df_all["Date"].max().date()
-date_range = st.sidebar.date_input(
-    "Rentang tanggal", value=(min_d, max_d), min_value=min_d, max_value=max_d
-)
-if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
-    start, end = date_range
-else:
-    start, end = min_d, max_d
-
-df = df_all[(df_all["Date"].dt.date >= start) & (df_all["Date"].dt.date <= end)].copy()
-if len(df) < 60:
-    st.warning("Data terlalu sedikit pada rentang ini. Perlebar rentang tanggal.")
+missing_cols = [c for c in REQUIRED if c not in df.columns]
+if missing_cols:
+    st.error(f"Kolom berikut tidak ada di file: {missing_cols}. Gunakan data hasil cleaning.")
     st.stop()
 
-st.sidebar.markdown("---")
-st.sidebar.caption(f"Jumlah observasi: **{len(df):,}** hari")
+min_d, max_d = df["Date"].min().date(), df["Date"].max().date()
 
-# ------------------------------------------------------------------
-# HEADER & KPI
-# ------------------------------------------------------------------
-st.title("📈 Dashboard Makro & Pasar Keuangan Indonesia")
-st.caption(f"Periode {start} s/d {end} · IHSG, S&P 500, USD/IDR, Emas, Minyak, VIX, Suku Bunga")
+# ======================================================================
+# SIDEBAR (FILTER INTERAKTIF)
+# ======================================================================
+st.sidebar.title("⚙️ Filter Dashboard")
 
-first, last = df.iloc[0], df.iloc[-1]
-k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("IHSG", f"{last['IHSG']:,.0f}", f"{(last['IHSG']/first['IHSG']-1)*100:+.1f}%")
-k2.metric("USD/IDR", f"{last['USDIDR']:,.0f}", f"{(last['USDIDR']/first['USDIDR']-1)*100:+.1f}%")
-k3.metric("S&P 500", f"{last['SP500']:,.0f}", f"{(last['SP500']/first['SP500']-1)*100:+.1f}%")
-k4.metric("VIX (rata-rata)", f"{df['VIX'].mean():.1f}")
-k5.metric("Spread BI–US", f"{last['spread_BI_US']:.2f} poin",
-          f"{last['spread_BI_US']-first['spread_BI_US']:+.2f}")
+PRESET = {
+    "Seluruh periode": (min_d, max_d),
+    "Taper tantrum 2013": (date(2013, 5, 1), date(2013, 12, 31)),
+    "COVID-19 (2020)": (date(2020, 1, 1), date(2020, 12, 31)),
+    "Pengetatan global 2022-2023": (date(2022, 1, 1), date(2023, 12, 31)),
+    "2025 - sekarang": (date(2025, 1, 1), max_d),
+}
+pilihan = st.sidebar.selectbox("Periode cepat", list(PRESET) + ["Kustom"])
 
-tab0, tab1, tab2, tab3, tab4 = st.tabs(
-    ["🏠 Overview", "🔍 Insight 1", "🔍 Insight 2", "🔍 Insight 3", "🗂️ Data"]
+if pilihan == "Kustom":
+    rentang = st.sidebar.date_input(
+        "Rentang tanggal", value=(min_d, max_d), min_value=min_d, max_value=max_d
+    )
+    if not isinstance(rentang, (tuple, list)) or len(rentang) != 2:
+        st.info("Pilih tanggal awal dan tanggal akhir pada sidebar.")
+        st.stop()
+    start, end = rentang
+else:
+    start, end = PRESET[pilihan]
+start, end = max(start, min_d), min(end, max_d)
+
+pilih_aset = st.sidebar.multiselect(
+    "Aset pada grafik tren",
+    options=list(LABEL),
+    default=["IHSG", "SP500", "GOLD", "USDIDR"],
+    format_func=lambda x: LABEL[x],
+)
+pakai_log = st.sidebar.checkbox("Skala logaritmik (grafik tren)", value=False)
+
+st.sidebar.caption(f"Data tersedia: {min_d} s/d {max_d}")
+
+fdf = df[(df["Date"] >= pd.Timestamp(start)) & (df["Date"] <= pd.Timestamp(end))].copy()
+if len(fdf) < 30:
+    st.warning("Rentang terlalu pendek (minimal sekitar 30 hari bursa). Perlebar rentang tanggal.")
+    st.stop()
+
+# ======================================================================
+# HEADER + KPI
+# ======================================================================
+st.title("📈 Dashboard Makroekonomi & Pasar Keuangan Indonesia")
+st.caption(
+    f"Periode terpilih: **{start}** s/d **{end}** ({len(fdf):,} hari bursa) · "
+    "Aset: IHSG, S&P 500, emas, minyak, USD/IDR, VIX · Makro: BI Rate, selisih suku bunga BI-AS"
 )
 
-# ==================================================================
-# TAB 0 — OVERVIEW (Visualisasi 1: Indeks ternormalisasi)
-# ==================================================================
-with tab0:
-    st.subheader("Visualisasi 1 — Kinerja Relatif Aset (Basis 100)")
-    options = ["IHSG", "SP500", "USDIDR", "GOLD", "OIL"]
-    chosen = st.multiselect("Pilih aset", options, default=["IHSG", "SP500", "USDIDR", "GOLD"])
-    if chosen:
-        base = df.set_index("Date")[chosen]
-        norm = base / base.iloc[0] * 100
-        fig = px.line(norm, labels={"value": "Indeks (awal periode = 100)", "variable": "Aset"})
-        fig.update_layout(hovermode="x unified", height=450, legend_title_text="")
-        st.plotly_chart(fig, use_container_width=True)
-        st.caption(
-            "Catatan: harga minyak sempat negatif pada 20 April 2020, sehingga indeks OIL "
-            "bisa terlihat ekstrem pada periode tersebut."
+
+def chg_pct(col):
+    return (fdf[col].iloc[-1] / fdf[col].iloc[0] - 1) * 100
+
+
+k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric("IHSG", f"{fdf['IHSG'].iloc[-1]:,.0f}", f"{chg_pct('IHSG'):+.1f}%")
+k2.metric("USD/IDR", f"{fdf['USDIDR'].iloc[-1]:,.0f}", f"{chg_pct('USDIDR'):+.1f}%", delta_color="inverse")
+k3.metric("Emas (USD)", f"{fdf['GOLD'].iloc[-1]:,.0f}", f"{chg_pct('GOLD'):+.1f}%")
+k4.metric(
+    "BI Rate", f"{fdf['BI_rate'].iloc[-1]:.2f}%",
+    f"{fdf['BI_rate'].iloc[-1] - fdf['BI_rate'].iloc[0]:+.2f} pp", delta_color="off",
+)
+k5.metric(
+    "VIX", f"{fdf['VIX'].iloc[-1]:.1f}",
+    f"{fdf['VIX'].iloc[-1] - fdf['VIX'].iloc[0]:+.1f}", delta_color="inverse",
+)
+
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "📊 Tren Aset", "🔗 Korelasi", "🏦 BI Rate & IHSG", "🌪️ Rezim VIX",
+    "💱 Spread & Rupiah", "💰 Simulasi Investasi", "🗂️ Data",
+])
+
+# ======================================================================
+# TAB 1 - TREN ASET (dinormalisasi)
+# ======================================================================
+with tab1:
+    st.subheader("Perbandingan Kinerja Aset (awal periode = 100)")
+    if not pilih_aset:
+        st.info("Pilih minimal satu aset pada sidebar.")
+    else:
+        base = fdf.set_index("Date")[pilih_aset]
+        norm = (base / base.iloc[0] * 100).rename(columns=LABEL)
+        fig = px.line(norm, labels={"value": "Indeks (awal = 100)", "Date": "Tanggal", "variable": "Aset"})
+        fig.update_yaxes(type="log" if pakai_log else "linear")
+        fig.update_layout(hovermode="x unified", title="Pergerakan relatif aset")
+        show(fig)
+
+        perf = (norm.iloc[-1] - 100).sort_values(ascending=False)
+        ihsg = fdf.set_index("Date")["IHSG"]
+        dd = ihsg / ihsg.cummax() - 1
+        st.info(
+            f"💡 **Insight:** Pada periode ini **{perf.index[0]}** memberi perubahan tertinggi "
+            f"({perf.iloc[0]:+.1f}%), sedangkan **{perf.index[-1]}** terendah ({perf.iloc[-1]:+.1f}%). "
+            f"Penurunan terdalam IHSG dari puncaknya mencapai **{dd.min() * 100:.1f}%** "
+            f"(titik terendah {dd.idxmin().date()}). "
+            "Catatan: kenaikan USD/IDR berarti rupiah melemah."
+        )
+
+# ======================================================================
+# TAB 2 - KORELASI
+# ======================================================================
+with tab2:
+    st.subheader("Korelasi Return Harian")
+    RET = {
+        "IHSG_ret": "IHSG", "SP500_ret": "S&P500 (hari sama)", "SP500_ret_lag1": "S&P500 (lag 1 hari)",
+        "USDIDR_ret": "USD/IDR", "GOLD_ret": "Emas", "OIL_chg": "Minyak (Δ)", "VIX_chg": "VIX (Δ)",
+    }
+    corr = fdf[list(RET)].rename(columns=RET).corr()
+    fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r", zmin=-1, zmax=1, aspect="auto")
+    fig.update_layout(title="Matriks korelasi (return/perubahan harian)")
+    show(fig)
+
+    c_lag = fdf["IHSG_ret"].corr(fdf["SP500_ret_lag1"])
+    c_same = fdf["IHSG_ret"].corr(fdf["SP500_ret"])
+    if abs(c_lag) > abs(c_same):
+        kalimat = (
+            "korelasi IHSG dengan return S&P 500 **hari sebelumnya** lebih kuat daripada hari yang sama. "
+            "Ini wajar karena bursa Indonesia tutup sebelum Wall Street buka, sehingga IHSG baru merespons "
+            "pergerakan AS keesokan harinya."
         )
     else:
-        st.info("Pilih minimal satu aset.")
-
-# ==================================================================
-# TAB 1 — INSIGHT 1: Korelasi level vs return (Visualisasi 2 & 3)
-# ==================================================================
-with tab1:
-    st.subheader("Insight 1 — Korelasi harga (level) menyesatkan dibanding korelasi return")
-
-    level_cols = ["IHSG", "SP500", "USDIDR", "GOLD", "OIL", "VIX", "spread_BI_US"]
-    ret_cols = ["IHSG_ret", "SP500_ret", "USDIDR_ret", "GOLD_ret", "OIL_chg", "VIX_chg"]
-
-    corr_level = df[level_cols].corr()
-    corr_ret = df[ret_cols].dropna().corr()
-
-    st.markdown("**Visualisasi 2 — Heatmap korelasi: level vs return**")
-    fig, axes = plt.subplots(1, 2, figsize=(15, 5.5))
-    sns.heatmap(corr_level, annot=True, fmt=".2f", cmap="RdBu_r", vmin=-1, vmax=1,
-                ax=axes[0], cbar=False)
-    axes[0].set_title("Korelasi LEVEL harga (terlihat sangat kuat)")
-    sns.heatmap(corr_ret, annot=True, fmt=".2f", cmap="RdBu_r", vmin=-1, vmax=1,
-                ax=axes[1])
-    axes[1].set_title("Korelasi RETURN harian (jauh lebih lemah)")
-    plt.tight_layout()
-    st.pyplot(fig)
-    plt.close(fig)
-
-    st.markdown("**Visualisasi 3 — Scatter return harian IHSG vs S&P 500**")
-    sc = df.dropna(subset=["IHSG_ret", "SP500_ret"])
-    beta, intercept = np.polyfit(sc["SP500_ret"], sc["IHSG_ret"], 1)
-    fig2, ax = plt.subplots(figsize=(8, 5))
-    sns.regplot(data=sc, x="SP500_ret", y="IHSG_ret",
-                scatter_kws={"alpha": 0.25, "s": 12},
-                line_kws={"color": "crimson"}, ax=ax)
-    ax.set_xlabel("Return harian S&P 500")
-    ax.set_ylabel("Return harian IHSG")
-    ax.set_title(f"Beta IHSG terhadap S&P 500 ≈ {beta:.2f}")
-    st.pyplot(fig2)
-    plt.close(fig2)
-
-    c_level = corr_level.loc["IHSG", "SP500"]
-    c_ret = corr_ret.loc["IHSG_ret", "SP500_ret"]
-    st.success(
-        f"**Insight:** korelasi level IHSG–S&P 500 sebesar **{c_level:.2f}**, tetapi korelasi "
-        f"return harian hanya **{c_ret:.2f}**. Kuatnya hubungan harga sebagian besar berasal dari "
-        f"tren naik jangka panjang yang sama, bukan dari pergerakan harian yang searah. "
-        f"Untuk analisis risiko atau pemodelan, gunakan return, bukan harga mentah."
+        kalimat = "korelasi IHSG dengan S&P 500 hari yang sama sama kuat atau lebih kuat daripada dengan lag 1 hari."
+    st.info(
+        f"💡 **Insight:** Pada periode ini korelasi IHSG–S&P 500 (lag 1 hari) = **{c_lag:.2f}**, "
+        f"hari yang sama = **{c_same:.2f}**; {kalimat}"
     )
 
-# ==================================================================
-# TAB 2 — INSIGHT 2: VIX vs risiko IHSG (Visualisasi 4)
-# ==================================================================
-with tab2:
-    st.subheader("Insight 2 — Saat VIX tinggi, volatilitas IHSG ikut melonjak")
+    st.markdown("#### Korelasi bergulir (rolling): apakah hubungan berubah dari waktu ke waktu?")
+    r1, r2 = st.columns(2)
+    PAIR = {
+        "SP500_ret_lag1": "S&P 500 (lag 1 hari)", "SP500_ret": "S&P 500 (hari sama)",
+        "USDIDR_ret": "USD/IDR", "GOLD_ret": "Emas", "VIX_chg": "VIX (Δ)",
+    }
+    xcol = r1.selectbox("Bandingkan IHSG dengan", list(PAIR), format_func=lambda x: PAIR[x])
+    win = r2.slider("Jendela rolling (hari bursa)", 30, 250, 90, step=10)
+    pair = fdf[["Date", "IHSG_ret", xcol]].dropna().reset_index(drop=True)
+    if len(pair) > win:
+        pair["rolling"] = pair["IHSG_ret"].rolling(win).corr(pair[xcol])
+        fig = px.line(pair, x="Date", y="rolling", labels={"rolling": "Korelasi", "Date": "Tanggal"})
+        fig.add_hline(y=0, line_dash="dash", line_color="gray")
+        fig.update_layout(title=f"Korelasi {win} hari: IHSG vs {PAIR[xcol]}")
+        show(fig)
+        rc = pair["rolling"].dropna()
+        st.info(
+            f"💡 **Insight:** Korelasi bergulir berkisar **{rc.min():.2f} s/d {rc.max():.2f}** "
+            f"(rata-rata {rc.mean():.2f}). Hubungan antar aset tidak tetap; "
+            "nilainya bergeser mengikuti kondisi pasar."
+        )
+    else:
+        st.info("Periode terlalu pendek untuk jendela rolling ini. Perkecil jendela atau perlebar periode.")
 
-    d = df.dropna(subset=["IHSG_ret", "VIX"]).copy()
-    d["Regim VIX"] = pd.qcut(
-        d["VIX"], 4, labels=["Q1 (rendah)", "Q2", "Q3", "Q4 (tinggi)"]
-    )
-    agg = (
-        d.groupby("Regim VIX", observed=True)
-        .agg(vol=("IHSG_ret", "std"), mean_ret=("IHSG_ret", "mean"), n=("IHSG_ret", "size"))
-        .reset_index()
-    )
-    agg["vol"] *= 100
-    agg["mean_ret"] *= 100
-
-    st.markdown("**Visualisasi 4 — Volatilitas & rata-rata return IHSG per kuartil VIX**")
-    fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=("Volatilitas harian IHSG (%)", "Rata-rata return harian IHSG (%)"),
-    )
-    fig.add_trace(go.Bar(x=agg["Regim VIX"], y=agg["vol"], marker_color="#E4572E",
-                         text=agg["vol"].round(2), textposition="outside", name="Volatilitas"),
-                  row=1, col=1)
-    fig.add_trace(go.Bar(x=agg["Regim VIX"], y=agg["mean_ret"],
-                         marker_color=np.where(agg["mean_ret"] >= 0, "#2E86AB", "#A23B72"),
-                         text=agg["mean_ret"].round(3), textposition="outside", name="Return"),
-                  row=1, col=2)
-    fig.update_layout(height=430, showlegend=False)
-    st.plotly_chart(fig, use_container_width=True)
-
-    v_low, v_high = agg["vol"].iloc[0], agg["vol"].iloc[-1]
-    r_high = agg["mean_ret"].iloc[-1]
-    st.success(
-        f"**Insight:** pada kuartil VIX tertinggi, volatilitas harian IHSG sekitar "
-        f"**{v_high:.2f}%**, dibanding **{v_low:.2f}%** pada kuartil terendah, atau sekitar "
-        f"**{v_high/v_low:.1f}x lipat**. Rata-rata return pada kondisi VIX tinggi adalah "
-        f"**{r_high:.3f}%** per hari. VIX bisa dipakai sebagai indikator peringatan dini "
-        f"risiko di pasar saham Indonesia."
-    )
-
-# ==================================================================
-# TAB 3 — INSIGHT 3: Spread suku bunga vs USDIDR (Visualisasi 5)
-# ==================================================================
+# ======================================================================
+# TAB 3 - EVENT STUDY BI RATE
+# ======================================================================
 with tab3:
-    st.subheader("Insight 3 — Menyempitnya spread BI–US berjalan seiring melemahnya Rupiah")
+    st.subheader("Reaksi IHSG terhadap Perubahan BI Rate (Event Study)")
+    e1, e2 = st.columns(2)
+    k = e1.slider("Jendela pengamatan (hari bursa sebelum/sesudah)", 1, 10, 5)
+    excl = e2.checkbox("Kecualikan perubahan anomali (|Δ| ≥ 1 pp, mis. pergantian metode 2016)", value=True)
 
-    st.markdown("**Visualisasi 5 — USD/IDR vs spread suku bunga BI–US**")
+    ev = df[df["BI_event"] & df["Date"].between(pd.Timestamp(start), pd.Timestamp(end))]
+    if excl:
+        ev = ev[ev["BI_rate_chg"].abs() < 1]
+
+    ret = df["IHSG_ret"].fillna(0).to_numpy()
+    mu = df["IHSG_ret"].mean()
+    rows, paths = [], {"Kenaikan": [], "Penurunan": []}
+    for idx, r in ev.iterrows():
+        if idx - k < 0 or idx + k >= len(df):
+            continue
+        ar = ret[idx - k: idx + k + 1] - mu  # abnormal return harian
+        jenis = "Kenaikan" if r["BI_rate_chg"] > 0 else "Penurunan"
+        paths[jenis].append(np.cumsum(ar))
+        rows.append({
+            "Tanggal": r["Date"].date(), "Jenis": jenis,
+            "Δ BI Rate (pp)": r["BI_rate_chg"], "BI Rate (%)": r["BI_rate"],
+            "CAR sebelum (%)": ar[:k].sum() * 100, "CAR sesudah (%)": ar[k:].sum() * 100,
+        })
+
+    if not rows:
+        st.info("Tidak ada perubahan BI Rate pada periode terpilih. Perlebar rentang tanggal di sidebar.")
+    else:
+        fig = go.Figure()
+        for jenis, arrs in paths.items():
+            if arrs:
+                fig.add_trace(go.Scatter(
+                    x=list(range(-k, k + 1)), y=np.mean(arrs, axis=0) * 100,
+                    mode="lines+markers", name=f"{jenis} (n={len(arrs)})",
+                ))
+        fig.add_vline(x=0, line_dash="dash", line_color="gray")
+        fig.add_hline(y=0, line_color="lightgray")
+        fig.update_layout(
+            title="Rata-rata cumulative abnormal return IHSG di sekitar tanggal perubahan BI Rate",
+            xaxis_title="Hari relatif terhadap perubahan (0 = tanggal perubahan)",
+            yaxis_title="CAR (%)", hovermode="x unified",
+        )
+        show(fig)
+
+        tbl = pd.DataFrame(rows)
+        g = tbl.groupby("Jenis")["CAR sesudah (%)"].agg(["mean", "count"])
+        teks = "; ".join(
+            f"setelah **{j.lower()}** (n={int(r['count'])}) rata-rata **{r['mean']:+.2f}%**" for j, r in g.iterrows()
+        )
+        st.info(
+            f"💡 **Insight:** Rata-rata abnormal return IHSG selama {k} hari bursa setelah perubahan: {teks}. "
+            "Jumlah kejadian kecil, jadi baca sebagai indikasi, bukan bukti kausal."
+        )
+        with st.expander("Lihat tabel setiap kejadian"):
+            st.dataframe(tbl.round(3), hide_index=True)
+
+# ======================================================================
+# TAB 4 - REZIM VIX
+# ======================================================================
+with tab4:
+    st.subheader("Volatilitas IHSG pada Berbagai Rezim VIX")
+    lo, hi = st.slider("Batas rezim VIX (tenang | normal | panik)", 10, 40, (15, 25))
+    v = fdf[["Date", "IHSG_ret", "VIX_lag1", "VIX"]].dropna().copy()
+    lab = [f"Tenang (≤{lo})", f"Normal ({lo}-{hi})", f"Panik (>{hi})"]
+    v["Rezim"] = pd.cut(v["VIX_lag1"], [-np.inf, lo, hi, np.inf], labels=lab)
+    v["Return IHSG (%)"] = v["IHSG_ret"] * 100
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        fig = px.line(fdf, x="Date", y="VIX", labels={"Date": "Tanggal"})
+        fig.add_hline(y=lo, line_dash="dot", line_color="green")
+        fig.add_hline(y=hi, line_dash="dot", line_color="red")
+        fig.update_layout(title="Indeks VIX dan batas rezim")
+        show(fig)
+    with col_b:
+        fig = px.box(v, x="Rezim", y="Return IHSG (%)", color="Rezim", points=False,
+                     category_orders={"Rezim": lab})
+        fig.update_layout(title="Sebaran return harian IHSG per rezim", showlegend=False)
+        show(fig)
+
+    ringkas = v.groupby("Rezim", observed=True)["IHSG_ret"].agg(
+        Hari="count", Rata2_Return_Harian="mean", Volatilitas_Harian="std"
+    )
+    ringkas["Hari Turun (%)"] = v.groupby("Rezim", observed=True)["IHSG_ret"].apply(lambda s: (s < 0).mean() * 100)
+    ringkas["Rata2_Return_Harian"] *= 100
+    ringkas["Volatilitas_Harian"] *= 100
+    st.dataframe(ringkas.round(3).rename(columns={
+        "Rata2_Return_Harian": "Rata-rata return harian (%)", "Volatilitas_Harian": "Volatilitas harian (%)"}))
+
+    if lab[0] in ringkas.index and lab[2] in ringkas.index:
+        rasio = ringkas.loc[lab[2], "Volatilitas_Harian"] / ringkas.loc[lab[0], "Volatilitas_Harian"]
+        st.info(
+            f"💡 **Insight:** Saat VIX hari sebelumnya berada di rezim panik, volatilitas harian IHSG "
+            f"sekitar **{rasio:.1f}x** lebih besar daripada rezim tenang. "
+            "VIX dapat dipakai sebagai indikator awal risiko pasar domestik."
+        )
+    else:
+        st.info("Salah satu rezim tidak muncul pada periode ini. Ubah batas VIX atau perlebar periode.")
+
+# ======================================================================
+# TAB 5 - SPREAD BI vs US & RUPIAH
+# ======================================================================
+with tab5:
+    st.subheader("Selisih Suku Bunga BI–AS dan Nilai Tukar Rupiah")
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["USDIDR"], name="USD/IDR",
-                             line=dict(color="#1f77b4")), secondary_y=False)
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["spread_BI_US"], name="Spread BI–US (poin)",
-                             line=dict(color="#ff7f0e")), secondary_y=True)
-    fig.update_yaxes(title_text="USD/IDR", secondary_y=False)
-    fig.update_yaxes(title_text="Spread BI–US (poin)", secondary_y=True)
-    fig.update_layout(height=450, hovermode="x unified", legend=dict(orientation="h", y=1.1))
-    st.plotly_chart(fig, use_container_width=True)
+    fig.add_trace(go.Scatter(x=fdf["Date"], y=fdf["spread_BI_US"], name="Spread BI−AS (pp)"), secondary_y=False)
+    fig.add_trace(go.Scatter(x=fdf["Date"], y=fdf["USDIDR"], name="USD/IDR"), secondary_y=True)
+    fig.update_yaxes(title_text="Spread (pp)", secondary_y=False)
+    fig.update_yaxes(title_text="USD/IDR", secondary_y=True)
+    fig.update_layout(title="Spread suku bunga vs USD/IDR", hovermode="x unified")
+    show(fig)
 
-    corr_sp = df["spread_BI_US"].corr(df["USDIDR"])
-    sp_first, sp_last = df["spread_BI_US"].iloc[0], df["spread_BI_US"].iloc[-1]
-    fx_first, fx_last = df["USDIDR"].iloc[0], df["USDIDR"].iloc[-1]
-    st.success(
-        f"**Insight:** korelasi spread BI–US dengan USD/IDR adalah **{corr_sp:.2f}** (negatif). "
-        f"Pada periode terpilih spread bergerak dari **{sp_first:.2f}** ke **{sp_last:.2f}** poin, "
-        f"sementara USD/IDR dari **{fx_first:,.0f}** ke **{fx_last:,.0f}**. Selisih imbal hasil yang "
-        f"menipis mengurangi daya tarik aset rupiah. Ini hubungan asosiasi pada level, "
-        f"bukan bukti sebab-akibat, karena faktor lain seperti inflasi dan arus modal ikut berperan."
+    sc = fdf.copy()
+    sc["Tahun"] = sc["Date"].dt.year
+    fig = px.scatter(sc, x="spread_BI_US", y="USDIDR", color="Tahun", opacity=0.6,
+                     labels={"spread_BI_US": "Spread BI−AS (pp)", "USDIDR": "USD/IDR"},
+                     color_continuous_scale="Viridis")
+    fig.update_layout(title="Hubungan spread dan USD/IDR (warna = tahun)")
+    show(fig)
+
+    c_level = fdf["spread_BI_US"].corr(fdf["USDIDR"])
+    bulanan = fdf.groupby(fdf["Date"].dt.to_period("M"))[["spread_BI_US", "USDIDR"]].last().diff().dropna()
+    c_chg = bulanan["spread_BI_US"].corr(bulanan["USDIDR"]) if len(bulanan) >= 6 else np.nan
+    if np.isnan(c_chg):
+        tambahan = "Periode terlalu pendek untuk menghitung korelasi perubahan bulanan."
+    elif abs(c_chg) < 0.2:
+        tambahan = (
+            f"Namun korelasi pada **perubahan bulanan** hanya **{c_chg:.2f}**, jadi korelasi level kemungkinan "
+            "dipengaruhi tren yang sama (spurious), bukan hubungan sebab-akibat langsung."
+        )
+    else:
+        tambahan = f"Korelasi pada **perubahan bulanan** juga **{c_chg:.2f}**, sehingga hubungan ini cukup konsisten."
+    if c_level <= -0.3:
+        arah = "spread menyempit cenderung bersamaan dengan rupiah melemah"
+    elif c_level >= 0.3:
+        arah = "spread melebar cenderung bersamaan dengan rupiah melemah"
+    else:
+        arah = "hubungan level keduanya lemah"
+    st.info(
+        f"💡 **Insight:** Korelasi level spread vs USD/IDR = **{c_level:.2f}** ({arah}). " + tambahan
     )
 
-# ==================================================================
-# TAB 4 — DATA
-# ==================================================================
-with tab4:
-    st.subheader("Data terfilter")
-    st.dataframe(df, use_container_width=True, height=400)
+# ======================================================================
+# TAB 6 - SIMULASI INVESTASI
+# ======================================================================
+with tab6:
+    st.subheader("Simulasi: Jika Dulu Berinvestasi di Aset Ini...")
+    s1, s2, s3 = st.columns(3)
+    modal = s1.number_input("Modal awal (Rp)", min_value=100_000, value=10_000_000, step=1_000_000)
+    d_buy_default = min(max(date(2020, 1, 2), min_d), max_d)
+    buy = s2.date_input("Tanggal beli", value=d_buy_default, min_value=min_d, max_value=max_d)
+    sell = s3.date_input("Tanggal jual", value=max_d, min_value=min_d, max_value=max_d)
+
+    if buy >= sell:
+        st.warning("Tanggal jual harus setelah tanggal beli.")
+    else:
+        sim = df[(df["Date"] >= pd.Timestamp(buy)) & (df["Date"] <= pd.Timestamp(sell))]
+        aset = pd.DataFrame({
+            "IHSG": sim["IHSG"].values,
+            "Emas (dalam Rp)": (sim["GOLD"] * sim["USDIDR"]).values,
+            "S&P 500 (dalam Rp)": (sim["SP500"] * sim["USDIDR"]).values,
+            "Dolar AS": sim["USDIDR"].values,
+        }, index=sim["Date"].values)
+        nilai = aset / aset.iloc[0] * modal
+
+        fig = px.line(nilai, labels={"value": "Nilai investasi (Rp)", "index": "Tanggal", "variable": "Aset"})
+        fig.update_layout(title="Pertumbuhan nilai investasi", hovermode="x unified")
+        show(fig)
+
+        tahun = max((sim["Date"].iloc[-1] - sim["Date"].iloc[0]).days / 365.25, 1e-9)
+        hasil = pd.DataFrame({
+            "Nilai akhir (Rp)": nilai.iloc[-1],
+            "Return total (%)": (nilai.iloc[-1] / modal - 1) * 100,
+            "Return per tahun (%)": ((nilai.iloc[-1] / modal) ** (1 / tahun) - 1) * 100,
+            "Penurunan maksimum (%)": (nilai / nilai.cummax() - 1).min() * 100,
+        })
+        st.dataframe(hasil.round(1).style.format({
+            "Nilai akhir (Rp)": "{:,.0f}", "Return total (%)": "{:+.1f}",
+            "Return per tahun (%)": "{:+.1f}", "Penurunan maksimum (%)": "{:.1f}"}))
+
+        terbaik = hasil["Return total (%)"].idxmax()
+        terburuk_dd = hasil["Penurunan maksimum (%)"].idxmin()
+        st.info(
+            f"💡 **Insight:** Dari {buy} sampai {sell}, aset dengan return tertinggi adalah **{terbaik}** "
+            f"({hasil.loc[terbaik, 'Return total (%)']:+.1f}%), sedangkan penurunan sementara terdalam "
+            f"terjadi pada **{terburuk_dd}** ({hasil.loc[terburuk_dd, 'Penurunan maksimum (%)']:.1f}%). "
+            "Aset dalam dolar ikut dipengaruhi pergerakan kurs."
+        )
+        st.caption(
+            "Simulasi historis sederhana: tidak memasukkan dividen, biaya transaksi, pajak, maupun selisih "
+            "harga beli-jual. Ini bukan rekomendasi investasi."
+        )
+
+# ======================================================================
+# TAB 7 - DATA
+# ======================================================================
+with tab7:
+    st.subheader("Data pada Periode Terpilih")
+    st.dataframe(fdf, hide_index=True)
     st.download_button(
-        "⬇️ Unduh CSV (hasil filter)",
-        df.to_csv(index=False).encode("utf-8"),
-        file_name="data_filtered.csv",
+        "⬇️ Unduh data terfilter (CSV)",
+        fdf.to_csv(index=False).encode("utf-8"),
+        file_name="data_terfilter.csv",
         mime="text/csv",
     )
-    st.subheader("Statistik deskriptif")
-    st.dataframe(df.describe().T, use_container_width=True)
+    with st.expander("Statistik deskriptif"):
+        st.dataframe(fdf.drop(columns="Date").describe().T)
+
+with st.expander("ℹ️ Catatan metodologi"):
+    st.markdown(
+        """
+- **Return** dihitung dari perubahan harga harian; hari libur bursa dibiarkan kosong (NaN) agar tidak menghasilkan return nol palsu.
+- **Event study:** *abnormal return* = return IHSG dikurangi rata-rata return harian seluruh data; CAR adalah akumulasinya.
+  Tanggal perubahan BI Rate di data kemungkinan tanggal efektif, bukan tanggal pengumuman RDG.
+- **Korelasi level** (harga/spread) rentan menyesatkan pada data time series; gunakan korelasi return atau perubahan.
+- Data hanya mencatat **perubahan** BI Rate, sehingga keputusan RDG "tahan" tidak dapat dianalisis.
+        """
+    )
