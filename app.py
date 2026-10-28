@@ -16,7 +16,7 @@ st.set_page_config(
     layout="wide",
 )
 
-DATA_FILE = "data/clean/data_clean.csv"
+DATA_FILE = "data_clean.csv"
 REQUIRED = [
     "Date", "OIL", "GOLD", "USDIDR", "SP500", "IHSG", "VIX", "BI_rate",
     "IHSG_ret", "SP500_ret", "SP500_ret_lag1", "USDIDR_ret", "GOLD_ret",
