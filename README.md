@@ -2,6 +2,8 @@
 
 Dashboard interaktif berbasis **Streamlit** untuk menganalisis hubungan antara indikator makroekonomi (BI Rate, selisih suku bunga BI-AS) dan dinamika pasar keuangan (IHSG, S&P 500, emas, minyak, USD/IDR, VIX) pada periode **2010-2026**.
 
+Link : https://studyclub2026pattern.streamlit.app/
+
 > Proyek kelompok 2 Pattern
 
 ## 👥 Tim
